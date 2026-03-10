@@ -2,64 +2,99 @@ import os
 import discord
 from discord.ext import commands
 
-# Mengambil Token dari Environment Variable
-TOKEN = os.environ.get('TOKEN')
+# TOKEN dari Railway Environment
+TOKEN = os.environ.get("TOKEN")
 
-# MASUKKAN ID VOICE CHANNEL DISINI
+# GANTI DENGAN ID VOICE CHANNEL KAMU
 VOICE_CHANNEL_ID = 1368851076408672337
 
-# Mengatur Intent
+# Intent
 intents = discord.Intents.default()
 intents.message_content = True
 
-# Inisialisasi Bot
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# status untuk tahu apakah user pakai !leave
+manual_disconnect = False
+
 
 @bot.event
 async def on_ready():
-    print(f'Bot berhasil login sebagai {bot.user}')
+    print(f"Bot berhasil login sebagai {bot.user}")
 
     channel = bot.get_channel(VOICE_CHANNEL_ID)
 
     if channel:
         try:
             if not bot.voice_clients:
-                await channel.connect()
+                await channel.connect(reconnect=True)
                 print("Bot auto join voice channel")
         except Exception as e:
             print("Gagal auto join:", e)
 
-# Command !ping
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    global manual_disconnect
+
+    if member.id == bot.user.id:
+        if after.channel is None and not manual_disconnect:
+            print("Bot keluar dari VC, mencoba reconnect...")
+            channel = bot.get_channel(VOICE_CHANNEL_ID)
+
+            if channel:
+                try:
+                    await channel.connect(reconnect=True)
+                    print("Reconnect berhasil")
+                except Exception as e:
+                    print("Reconnect gagal:", e)
+
+        manual_disconnect = False
+
+
+# COMMAND PING
 @bot.command()
 async def ping(ctx):
-    await ctx.send('Pong!')
+    await ctx.send("Pong!")
 
-# Command !join
-@bot.command()
+
+# COMMAND JOIN
+@bot.command(name="masukvoice")
 async def join(ctx):
     if ctx.author.voice:
         channel = ctx.author.voice.channel
-        voice_client = ctx.voice_client
-        
-        if voice_client and voice_client.is_connected():
-            await voice_client.move_to(channel)
-            await ctx.send(f"Bot pindah ke channel **{channel.name}**")
-        else:
-            await channel.connect()
-            await ctx.send(f"Bot berhasil masuk ke **{channel.name}**")
-    else:
-        await ctx.send("Kamu tidak berada di voice channel! Masuk dulu baru panggil bot.")
+        voice = ctx.voice_client
 
-# Command !leave
-@bot.command()
+        try:
+            if voice and voice.is_connected():
+                await voice.move_to(channel)
+                await ctx.send(f"Bot pindah ke **{channel.name}**")
+            else:
+                await channel.connect()
+                await ctx.send(f"Bot masuk ke **{channel.name}**")
+        except Exception as e:
+            await ctx.send("Gagal join voice.")
+            print("Join error:", e)
+    else:
+        await ctx.send("Masuk voice channel dulu.")
+
+
+# COMMAND LEAVE
+@bot.command(name="keluarvoice")
 async def leave(ctx):
-    if ctx.voice_client:
-        await ctx.voice_client.disconnect()
+    global manual_disconnect
+
+    voice = ctx.voice_client
+
+    if voice and voice.is_connected():
+        manual_disconnect = True
+        await voice.disconnect()
         await ctx.send("Bot keluar dari voice channel.")
     else:
-        await ctx.send("Bot tidak ada di voice channel manapun.")
+        await ctx.send("Bot tidak ada di voice channel.")
 
-# Menjalankan bot
+
+# START BOT
 if TOKEN is None:
     print("ERROR: Token tidak ditemukan!")
 else:
